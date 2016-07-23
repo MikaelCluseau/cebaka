@@ -1,19 +1,20 @@
 package log
 
 import (
+	golog "log"
 	"sync"
 )
 
 type Config struct {
 	MaxSegmentSize int64
-    MaxSyncLag int
+	MaxSyncLag     int
 }
 
 type Log struct {
-    config Config
+	config Config
 
 	nextOffset    uint64
-    syncOffset    uint64
+	syncOffset    uint64
 	store         Store
 	activeSegment Segment
 
@@ -24,28 +25,30 @@ type Log struct {
 // Open a log from a store
 func Open(config Config, store Store) (*Log, error) {
 	l := &Log{
-		config: config,
-		store:          store,
-		indexCond:      sync.NewCond(&sync.Mutex{}),
+		config:    config,
+		store:     store,
+		indexCond: sync.NewCond(&sync.Mutex{}),
 	}
 
+	golog.Print("debug 0001 ...")
 	segment, err := store.LastSegment()
 	if err != nil {
 		return nil, err
 	}
+	golog.Print("debug 0002 ...")
 	var nextOffset uint64 = 1
 	if segment != nil {
-		lastOffset, err := segment.LastOffset()
-		if err != nil {
-			return nil, err
-		}
-		nextOffset = lastOffset + 1
-        l.activeSegment = segment
+		nextOffset = segment.LastOffset() + 1
+		l.activeSegment = segment
 	}
 	l.nextOffset = nextOffset
-    l.syncOffset = nextOffset-1
+	l.syncOffset = nextOffset - 1
 
 	return l, nil
+}
+
+func (l *Log) NextOffset() uint64 {
+    return l.nextOffset
 }
 
 // Wait for this log to reach an offset of at least minOffset.
@@ -67,34 +70,37 @@ func (l *Log) Append(message *Message) (uint64, error) {
 	l.writeMutex.Lock()
 	defer l.writeMutex.Unlock()
 
-	if l.activeSegment == nil || l.activeSegment.Size() > l.config.MaxSegmentSize {
-        if l.activeSegment != nil {
-            l.activeSegment.Sync()
-            l.activeSegment = nil
-        }
+	if l.activeSegment == nil {
 		segment, err := l.store.LastSegment()
 		if err != nil {
 			return 0, err
 		}
-		if segment == nil {
-			segment, err = l.store.AddSegment(l.nextOffset)
-			if err != nil {
-				return 0, err
-			}
+		l.activeSegment = segment
+	}
+	if l.activeSegment == nil || l.activeSegment.Size() > l.config.MaxSegmentSize {
+		if l.activeSegment != nil {
+			l.activeSegment.Sync()
+			l.activeSegment.Close()
+			l.activeSegment = nil
+		}
+
+		segment, err := l.store.AddSegment(l.nextOffset)
+		if err != nil {
+			return 0, err
 		}
 		l.activeSegment = segment
 	}
 
-    offset := l.nextOffset
+	offset := l.nextOffset
 	if err := l.activeSegment.Append(offset, message); err != nil {
 		return 0, err
 	}
 
-    // TODO more async "sync" support?
-    if l.config.MaxSyncLag >= 0 && (offset - l.syncOffset) > uint64(l.config.MaxSyncLag) {
-        l.activeSegment.Sync()
-        l.syncOffset = offset
-    }
+	// TODO more async "sync" support?
+	if l.config.MaxSyncLag >= 0 && (offset-l.syncOffset) > uint64(l.config.MaxSyncLag) {
+		l.activeSegment.Sync()
+		l.syncOffset = offset
+	}
 
 	l.indexCond.L.Lock()
 	l.nextOffset++
@@ -105,23 +111,15 @@ func (l *Log) Append(message *Message) (uint64, error) {
 
 // Change the configuration
 func (l *Log) SetConfig(config Config) {
-    // TODO not sure sync is needed...
+	// TODO not sure sync is needed...
 	l.writeMutex.Lock()
-    l.config = config
+	l.config = config
 	l.writeMutex.Unlock()
 }
 
-type Store interface {
-	Segments() ([]Segment, error)
-	LastSegment() (Segment, error)
-	AddSegment(startOffset uint64) (Segment, error)
-}
-
-type Segment interface {
-	FirstOffset() (uint64, error)
-	LastOffset() (uint64, error)
-	Size() int64
-    Sync() error
-	Append(offset uint64, message *Message) error
-	Reader() (*Reader, error)
+func (l *Log) Close() {
+	if l.activeSegment != nil {
+		l.activeSegment.Sync()
+		l.activeSegment.Close()
+	}
 }

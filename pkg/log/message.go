@@ -4,7 +4,6 @@ package log
 // See http://kafka.apache.org/documentation.html#messageformat.
 
 import (
-	"encoding/binary"
 	"hash/crc32"
 	"io"
 	"time"
@@ -39,19 +38,19 @@ type Message struct {
 	//    bit 4 ~ 7 : reserved
 	Attributes byte
 	// (Optional) 8 byte timestamp only if "magic" identifier is greater than 0
-	Timestamp int64
+	Timestamp uint64
 	// K byte key
 	Key []byte
 	// V byte payload
 	Payload []byte
 }
 
-func Timestamp(t time.Time) int64 {
+func Timestamp(t time.Time) uint64 {
 	// FIXME is it Unix, UnixNano, something else?
-	return t.Unix()
+	return uint64(t.Unix())
 }
 
-func NewMessage(timestamp int64, key, data []byte) *Message {
+func NewMessage(timestamp uint64, key, data []byte) *Message {
 	l := &Message{
 		Format:     1,
 		Attributes: 0,
@@ -77,38 +76,34 @@ func (l *Message) UpdateCRC() {
 
 func (l *Message) ComputeCRC() uint32 {
 	h := crc32.NewIEEE()
-	l.writePostCRCTo(h)
+	l.writePostCRCTo(NewBinaryWriter(h))
 	return h.Sum32()
 }
 
 func (l *Message) ReadFrom(reader io.Reader) error {
-	r := binaryReader{reader, nil}
-	r.ReadValue(&l.CRC)
-	r.ReadValue(&l.Format)
-	r.ReadValue(&l.Attributes)
+	r := BinaryReader{reader, nil}
+	l.CRC = r.ReadUint32()
+    l.Format = r.ReadByte()
+    l.Attributes = r.ReadByte()
 	if l.Format > 0 {
-		r.ReadValue(&l.Timestamp)
+        l.Timestamp = r.ReadUint64()
 	}
     l.Key = r.ReadBytes()
     l.Payload = r.ReadBytes()
 	return r.err
 }
 
-func (l *Message) WriteTo(writer io.Writer) error {
-	if err := binary.Write(writer, binary.LittleEndian, l.CRC); err != nil {
-		return err
-	}
-	return l.writePostCRCTo(writer)
+func (l *Message) WriteTo(writer *BinaryWriter) {
+    writer.WriteUint32(l.CRC)
+	l.writePostCRCTo(writer)
 }
 
-func (l *Message) writePostCRCTo(writer io.Writer) error {
-	w := binaryWriter{writer, nil}
-	w.WriteValue(l.Format)
-	w.WriteValue(l.Attributes)
+func (l *Message) writePostCRCTo(w *BinaryWriter) {
+	w.WriteByte(l.Format)
+	w.WriteByte(l.Attributes)
 	if l.Format > 0 {
-		w.WriteValue(l.Timestamp)
+		w.WriteUint64(l.Timestamp)
 	}
 	w.WriteBytes(l.Key)
 	w.WriteBytes(l.Payload)
-	return w.err
 }

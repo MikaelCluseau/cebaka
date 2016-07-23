@@ -1,62 +1,57 @@
 package main
 
 import (
-    "log"
-    "flag"
+    golog "log"
+    "time"
+    "os"
+    "crypto/rand"
+    "runtime/pprof"
 
-    "github.com/ceph/go-ceph/rados"
+	"github.com/MikaelCluseau/cebaka/pkg/log"
+	"github.com/MikaelCluseau/cebaka/pkg/log/stores/kafka"
 )
-
-var (
-    cluster, user string
-    pool string
-    slot int32
-)
-
-func init() {
-    flag.StringVar(&cluster, "cluster", "ceph", "The ceph cluster to use.")
-    flag.StringVar(&user, "user", "cebaka", "The ceph user to use.")
-    flag.StringVar(&pool, "pool", "cebaka", "The ceph pool to use.")
-}
 
 func main() {
-    flag.Parse()
-
-    log.Print("Preparing Ceph connection to cluster ", cluster, " as ", user)
-    conn, err := rados.NewConnWithClusterAndUser(cluster, "client." + user)
+    golog.Print("opening store...")
+    store, err := kafka.Open("/tmp/test-log")
     if err != nil {
-        log.Fatal(err)
+        golog.Fatal(err)
     }
-    defer func() {
-        log.Print("Closing Ceph connection")
-        conn.Shutdown()
-        log.Print("Shutdown complete.")
-    }()
-
-    log.Print("Loading Ceph configuration")
-    if err = conn.ReadDefaultConfigFile(); err != nil {
-        log.Fatal(err)
-    }
-    log.Print("Connecting to Ceph")
-    if err = conn.Connect(); err != nil {
-        log.Fatal(err)
-    }
-
-    ctx, err := conn.OpenIOContext(pool)
+    golog.Print("opening log...")
+	l, err := log.Open(log.Config{
+		MaxSegmentSize: 100 << 20,
+		MaxSyncLag:     -1,
+	}, store)
     if err != nil {
-        log.Fatal(err)
-    }
-    defer ctx.Destroy()
-    log.Print("Connected to Ceph.")
-
-    if err := ctx.SetOmap("test", map[string][]byte{
-        "test": []byte("poeutpzou"),
-    }); err != nil {
-        log.Fatal(err)
+        golog.Fatal(err)
     }
 
-    pw := NewPartitionWriter("test-topic", 0, 4<<20, ctx)
-    pw.Write([]byte("hello!"))
+    golog.Print("log opened, next offset: ", l.NextOffset())
 
-    log.Print("Finished")
+    data := make([]byte, 4096)
+    rand.Read(data)
+    msg := log.NewMessage(log.Timestamp(time.Now()), nil, data)
+
+    if false {
+        f, err := os.Create("/tmp/cpu.2.prof")
+        if err != nil {
+            golog.Fatal(err)
+        }
+        pprof.StartCPUProfile(f)
+        defer pprof.StopCPUProfile()
+    }
+
+    golog.Print("append message...")
+    t0 := time.Now()
+    count := int(1e6)
+    for i := 0; i < count; i++ {
+        if _, err := l.Append(msg); err != nil {
+            golog.Fatal(err)
+        }
+    }
+    golog.Print("close")
+    golog.Print("time taken (pre-close): ", time.Since(t0))
+    l.Close()
+    golog.Print("time taken (closed):    ", time.Since(t0))
+    golog.Print("done")
 }

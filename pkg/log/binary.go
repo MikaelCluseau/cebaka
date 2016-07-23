@@ -7,53 +7,118 @@ import (
 
 var byteOrder = binary.BigEndian
 
-type binaryReader struct {
+// Performs reads from a reader, unless an error occur.
+// When an error occurs, it is recorded in the err property, and future calls to read methods are no-op.
+type BinaryReader struct {
 	io.Reader
-	err    error
+	err error
 }
 
-func (br binaryReader) ReadValue(data interface{}) {
-	if br.err != nil {
-		return
+func (br *BinaryReader) Err() error {
+	return br.err
+}
+
+func (br *BinaryReader) ReadUint32() uint32 {
+	b := [4]byte{}
+	if !br.read(b[:]) {
+		return 0
 	}
-	br.err = binary.Read(br, byteOrder, data)
+	return byteOrder.Uint32(b[:])
 }
 
-func (br binaryReader) ReadBytes() []byte {
-    var size int32
-    br.ReadValue(&size)
+func (br *BinaryReader) ReadUint64() uint64 {
+	b := [8]byte{}
+	if !br.read(b[:]) {
+		return 0
+	}
+	return byteOrder.Uint64(b[:])
+}
+
+func (br *BinaryReader) read(b []byte) bool {
 	if br.err != nil {
+		return false
+	}
+	if _, err := br.Read(b[:]); err != nil {
+		br.err = err
+		return false
+    }
+	return true
+}
+
+func (br *BinaryReader) ReadByte() byte {
+	b := [1]byte{}
+	br.read(b[:])
+	return b[0]
+}
+
+func (br *BinaryReader) ReadBytes() []byte {
+	size := br.ReadUint32()
+	if br.err != nil || size == nilBytesSize {
 		return nil
 	}
-    if size < 0 {
+	buf := make([]byte, size)
+    if !br.read(buf) {
         return nil
     }
-	buf := make([]byte, size)
-	_, br.err = br.Read(buf)
-	if br.err != nil {
-		return nil
-	}
 	return buf
 }
 
-type binaryWriter struct {
+// Performs writes to a writer, unless an error occur.
+// When an error occurs, it is recorded in the err property, and future calls to write methods are no-op.
+type BinaryWriter struct {
 	io.Writer
-	err    error
+	err error
+
+    b4,
+    b8 []byte
 }
 
-func (bw binaryWriter) WriteValue(data interface{}) {
-	if bw.err != nil {
-		return
-	}
-	bw.err = binary.Write(bw, byteOrder, data)
+func NewBinaryWriter(writer io.Writer) *BinaryWriter {
+    return &BinaryWriter{writer, nil, make([]byte, 4), make([]byte, 8)}
 }
 
-func (bw binaryWriter) WriteBytes(b []byte) {
-    if b == nil {
-        bw.WriteValue(int32(-1))
+func (bw *BinaryWriter) Err() error {
+	return bw.err
+}
+
+var (
+    nilBytesSize uint32 = 0xffffffff
+)
+
+func (bw *BinaryWriter) WriteUint32(v uint32) {
+    if bw.err != nil {
         return
     }
-    bw.WriteValue(int32(len(b)))
+    byteOrder.PutUint32(bw.b4, v)
+    _, bw.err = bw.Write(bw.b4)
+}
+
+
+func (bw *BinaryWriter) WriteUint64(v uint64) {
+    if bw.err != nil {
+        return
+    }
+    byteOrder.PutUint64(bw.b8, v)
+    _, bw.err = bw.Write(bw.b8)
+}
+
+func (bw *BinaryWriter) WriteByte(v byte) {
+    if bw.err != nil {
+        return
+    }
+	b := [1]byte{v}
+    _, bw.err = bw.Write(b[:])
+}
+
+func (bw *BinaryWriter) WriteBytes(b []byte) {
+    if bw.err != nil {
+        return
+    }
+	if b == nil {
+		bw.WriteUint32(0xffffffff)
+		return
+	}
+	bw.WriteUint32(uint32(len(b)))
 	if bw.err != nil {
 		return
 	}

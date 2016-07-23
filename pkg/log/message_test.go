@@ -21,7 +21,7 @@ func TestByteOrder(t *testing.T) {
 
 func TestEmptyBytes(t *testing.T) {
 	buf := &bytes.Buffer{}
-	binaryWriter{buf, nil}.WriteBytes(nil)
+	NewBinaryWriter(buf).WriteBytes(nil)
 	assertDump(t, buf, `00000000  ff ff ff ff                                       |....|`+"\n")
 }
 
@@ -32,14 +32,14 @@ func TestMessageWrite(t *testing.T) {
 	m := NewMessage(1469067554, key, data)
 
 	buf := &bytes.Buffer{}
-	m.WriteTo(buf)
+	m.WriteTo(NewBinaryWriter(buf))
 
 	if buf.Len() != int(m.Len()) {
 		t.Error("bad length: ", m.Len(), " != ", buf.Len())
 	}
 
 	// Expected on-disk format:
-	// - crc:         0x22b5a1e0         (computed)
+	// - crc:         0xe0a1b5201        (computed)
 	// - format:      0x01
 	// - attributes:  0x00
 	// - timestamp:   0x0000000057903122 = 1469067554 (padded to 64 bits)
@@ -48,7 +48,7 @@ func TestMessageWrite(t *testing.T) {
 	// - payload len: 0x00000004         = len("data")
 	// - payload:     0x6b6579           = []byte("data")
 	assertDump(t, buf, ""+
-		`00000000  22 b5 a1 e0 01 00 00 00  00 00 57 90 31 22 00 00  |".........W.1"..|`+"\n"+
+		`00000000  e0 a1 b5 22 01 00 00 00  00 00 57 90 31 22 00 00  |..."......W.1"..|`+"\n"+
 		`00000010  00 03 6b 65 79 00 00 00  04 64 61 74 61           |..key....data|`+"\n")
 }
 
@@ -68,7 +68,7 @@ func TestWriteRead(t *testing.T) {
 	m := NewMessage(1469067554, key, data)
 
 	buf := &bytes.Buffer{}
-	m.WriteTo(buf)
+	m.WriteTo(NewBinaryWriter(buf))
 
 	m2 := &Message{}
 	m2.ReadFrom(buf)

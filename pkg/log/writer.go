@@ -2,44 +2,63 @@ package log
 
 import (
 	"io"
+    "bufio"
 )
 
-type LogWriter struct {
-    LogWriterBackend
+type Writer struct {
+    WriterBackend
 
 	// next message offset
-	position uint64
+	position int64
+
+    buf *bufio.Writer
+}
+
+func NewWriter(backend WriterBackend, position int64) *Writer {
+    return &Writer{backend, position, bufio.NewWriter(backend)}
+}
+
+func (lw *Writer) Position() int64 {
+    return lw.position
 }
 
 // Append a log message and return the position after append, or any error occured when writing.
-func (lw *LogWriter) Append(offset uint64, message *Message) error {
+func (lw *Writer) Append(offset uint64, message *Message) error {
 	length := message.Len()
 
-	bw := binaryWriter{lw, nil}
-	bw.WriteValue(offset)
-	bw.WriteValue(length)
+	bw := NewBinaryWriter(lw.buf)
+	bw.WriteUint64(offset)
+	bw.WriteUint32(length)
 	if bw.err != nil {
 		lw.rewind()
 		return bw.err
 	}
-	if err := message.WriteTo(lw); err != nil {
+	message.WriteTo(bw)
+    if bw.err != nil {
 		lw.rewind()
-		return err
+		return bw.err
 	}
 
-	shift := 8 + uint64(length)
-	lw.position += shift
+	lw.position += 8 + 4 + int64(length)
 	return nil
 }
 
-func (lw *LogWriter) rewind() {
-	lw.Seek(int64(lw.position), 0)
+func (lw *Writer) Sync() error {
+    if err := lw.buf.Flush(); err != nil {
+        return err
+    }
+    return lw.WriterBackend.Sync()
 }
 
-type LogWriterBackend interface {
+func (lw *Writer) rewind() {
+	lw.Seek(int64(lw.position), 0)
+    // buffer is invalid after seek
+    lw.buf = bufio.NewWriter(lw)
+}
+
+type WriterBackend interface {
     io.Writer
     io.Seeker
-    io.Closer
 
     Sync() error
 }
