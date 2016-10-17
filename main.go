@@ -7,8 +7,8 @@ import (
 	"runtime/pprof"
 	"time"
 
-	"github.com/MikaelCluseau/cebaka/pkg/log"
-	"github.com/MikaelCluseau/cebaka/pkg/log/stores/kafka"
+	"github.com/MikaelCluseau/webaka/pkg/log"
+	"github.com/MikaelCluseau/webaka/pkg/log/stores/kafka"
 )
 
 var count int = 5e4

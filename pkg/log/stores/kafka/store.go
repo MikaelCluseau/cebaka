@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/MikaelCluseau/cebaka/pkg/log"
+	"github.com/MikaelCluseau/webaka/pkg/log"
 )
 
 var (

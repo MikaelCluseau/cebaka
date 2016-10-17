@@ -3,7 +3,7 @@ package kafka
 import (
 	"os"
 
-	"github.com/MikaelCluseau/cebaka/pkg/log"
+	"github.com/MikaelCluseau/webaka/pkg/log"
 )
 
 type Segment struct {
