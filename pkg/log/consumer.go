@@ -26,7 +26,7 @@ func (c *Consumer) Next() (uint64, *Message, error) {
 			return 0, nil, err
 		}
 		if offset >= c.offset {
-			c.offset = offset
+			c.offset = offset + 1 // next wait will be for the next offset
 			return offset, msg, nil
 		}
 	}
